@@ -1,0 +1,393 @@
+#include <iostream>
+#include <string>
+#include <vector>
+#include <algorithm>
+#include <list>
+#include <map>
+
+using namespace std;
+
+class NodeBase {
+    int x, y;
+    int value;
+public:
+    NodeBase(int x, int y,int value) : x(x), y(y),value(value) {}
+
+    friend ostream &operator<<(ostream &os, const NodeBase &node) {
+        os << node.x << " " << node.y;
+        return os;
+    }
+
+    int getValue() const {
+        return value;
+    }
+
+    virtual bool hasSpace()const = 0;
+
+    int getX() const {
+        return x;
+    }
+
+    int getY() const {
+        return y;
+    }
+
+
+};
+
+
+class Edge {
+    int value = 0;
+    NodeBase *nodes[2];
+    vector<Edge*> crossingEdges;
+
+    bool fixedValue = false;
+
+    bool crossCheck() const{
+        for (auto edge : crossingEdges){
+            if (edge->getValue() >0) return true;
+        }
+        return false;
+    }
+public:
+
+    Edge(NodeBase *node1, NodeBase *node2) : nodes{node1, node2} {}
+
+    bool hasFixedValue() const{
+        return fixedValue;
+    }
+
+    void fixValue(int newValue){
+        value = newValue;
+        fixedValue = true;
+    }
+
+    void setValue(int newValue) {
+        this->value = newValue;
+    }
+
+    [[nodiscard]] int getValue() const {
+        return value;
+    }
+
+    friend ostream &operator<<(ostream &os, const Edge &edge) {
+        os << (*edge.nodes[0]) << " " << (*edge.nodes[1]) << " " << edge.value;
+        return os;
+    }
+
+    [[nodiscard]] bool hasSpace()const{
+
+        return nodes[0]->hasSpace() && nodes[1]->hasSpace() && value < 2 && !crossCheck();
+    }
+
+    void addCrossing(Edge* crossing){
+        crossingEdges.emplace_back(crossing);
+    }
+
+    [[nodiscard]] vector<pair<int,int>> path() const {
+        int x0, y0,x1,y1;
+
+        vector<pair<int,int>> index;
+
+        x0 = nodes[0]->getX();
+        x1 = nodes[1]->getX();
+        y0 = nodes[0]->getY();
+        y1 = nodes[1]->getY();
+
+        if (x0 > x1){
+            for (int i = x1+1;i < x0;i++){
+                index.emplace_back(make_pair(i,y0));
+            }
+        } else if (x1 > x0){
+            for (int i = x0+1;i < x1;i++){
+                index.emplace_back(make_pair(i,y0));
+            }
+        } else if (y0 > y1){
+            for (int i = y1+1;i < y0;i++){
+                index.emplace_back(make_pair(x0,i));
+            }
+        }else if (y1 > y0){
+            for (int i = y0+1;i < y1;i++){
+                index.emplace_back(make_pair(x0,i));
+            }
+        }
+
+        return index;
+
+    }
+
+    bool cross(const Edge* edge){
+        for (auto index1: path()){
+            for (auto index2: edge->path()){
+                if (index1 == index2) return true;
+            }
+        }
+        return false;
+    }
+
+    int maxValue()const{
+        return min(min(nodes[0]->getValue(),nodes[1]->getValue()),2);
+    }
+
+};
+
+class Node : public NodeBase {
+
+    map<Node *, Edge *> edges;
+    bool fixed = false;
+
+public:
+    Node(int value, int x, int y) : NodeBase(x, y,value) {}
+
+    void addEdge(Node *node, Edge *edge) {
+        edges[node] = edge;
+
+    }
+
+    int edgeValue() const {
+        int tot = 0;
+        for (auto c: edges) {
+            tot += c.second->getValue();
+        }
+        return tot;
+    }
+
+    bool isFull() const {
+        return edgeValue() == getValue();
+    }
+
+    int space() const{
+        return getValue() - edgeValue()   ;
+    }
+
+    bool hasSpace()const{
+        return space() > 0;
+    }
+
+
+
+    int checkFix(){
+        int fixEdgeAmount = 0;
+        int fixAmount = 0;
+        int freeAmount = 0;
+        int freeEdgeAmount = 0;
+
+        if (fixed){
+            return 0;
+        }
+        if (!hasSpace()){
+            for (auto edge:edges){
+                if (!edge.second->hasFixedValue()){
+                    edge.second->fixValue(0);
+                }
+            }
+            fixed = true;
+            return 0;
+        }
+
+        for (auto edge:edges){
+            if (edge.second->hasFixedValue()){
+                fixEdgeAmount++;
+                fixAmount += edge.second->getValue();
+            }else{
+                freeAmount += edge.second->maxValue();
+                freeEdgeAmount++;
+            }
+
+        }
+
+        if (freeEdgeAmount ==0){
+            return 0;
+        }else{
+            if((getValue() - fixAmount) == freeAmount){
+                for (auto edge:edges){
+                    if (!edge.second->hasFixedValue()){
+                        int edgeValue = edge.second->maxValue();
+                        edge.second->fixValue(edgeValue);
+                    }
+                }
+                fixed = true;
+                return freeAmount;
+            }else{
+                return 0;
+            }
+        }
+
+    }
+
+};
+
+class Graph {
+    int width, height;
+    int totalValue= 0;
+    int fixedValue  = 0;
+
+    map<int, Node *> nodes;
+    vector<Edge *> edges;
+
+
+    bool isSolved() const {
+        for (auto node: nodes) {
+            if (!node.second->isFull()) { return false; }
+        }
+        return true;
+    }
+
+    void findNodes(string* rows){
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int index = y * width + x;
+                if (rows[y][x] != '.') {
+                    int value = rows[y][x] - '0';
+                    //Add value to total value for accounting later
+                    totalValue += value;
+                    auto node = new Node(value, x, y);
+                    nodes[index] = node;
+                    bool foundX = false, foundY = false;
+                    int searchX = index, searchY = index;
+                    while (!foundX) {
+                        searchX--;
+                        if (searchX / width != index / width || searchX < 0) foundX = true;
+                        else {
+                            if (nodes.find(searchX) != nodes.end()) {
+                                auto otherNode = nodes[searchX];
+                                auto edge = new Edge(node, otherNode);
+                                edges.emplace_back(edge);
+                                node->addEdge(otherNode, edge);
+                                otherNode->addEdge(node, edge);
+                                foundX = true;
+                            }
+                        }
+                    }
+                    while (!foundY) {
+                        searchY -= width;
+                        if (searchY < 0) foundY = true;
+                        else {
+                            if (nodes.find(searchY) != nodes.end()) {
+                                auto otherNode = nodes[searchY];
+                                auto edge = new Edge(node, otherNode);
+                                edges.emplace_back(edge);
+                                node->addEdge(otherNode, edge);
+                                otherNode->addEdge(node, edge);
+                                foundY = true;
+                            }
+                        }
+                    }
+
+                }
+            }
+        }
+    }
+
+    void findCrossing(){
+        for (auto edge1 : edges){
+            for (auto edge2: edges){
+                if (edge1 != edge2){
+                    if (edge1->cross(edge2)){
+                        edge1->addCrossing(edge2);
+                        edge2->addCrossing(edge1);
+                    }
+                }
+            }
+        }
+    }
+
+    void fixValue(){
+
+        bool modified;
+        do{
+            modified = false;
+            for (auto nodePair:nodes){
+                auto node = nodePair.second;
+                int value = node->checkFix();
+                if (value>0){
+                    fixedValue += value;
+                    modified = true;
+                }
+            }
+        }while(modified);
+
+    }
+public:
+
+    Graph(int width, int height, string *rows) : width(width), height(height) {
+
+        findNodes(rows);
+        findCrossing();
+        fixValue();
+    }
+
+    void solve() {
+        list<Edge *> queue;
+        list<Edge *> temp;
+
+        for (auto edge : edges) {
+            if (!edge->hasFixedValue()){
+                queue.emplace_back(edge);
+            }
+
+        }
+
+        int count = 0;
+        while (count < totalValue-fixedValue) {
+
+            // for (auto edge: queue){
+            //     cout << edge->getValue();
+            //     if (edge->hasFixedValue()) cout << "*";
+            //     cout << " ";
+            // }
+            // cout <<endl;
+            while (!queue.back()->hasSpace()) {
+                count -= queue.back()->getValue();
+                queue.back()->setValue(0);
+                temp.emplace_back(queue.back());
+                queue.pop_back();
+
+            }
+            count++;
+            queue.back()->setValue(queue.back()->getValue() + 1);
+            while (!temp.empty()) {
+                queue.emplace_back(temp.back());
+                temp.pop_back();
+            }
+
+        }
+
+
+    }
+
+    vector<Edge *>& getEdges() {
+        return edges;
+    }
+};
+
+int main() {
+    int width;
+    cin >> width;
+    cin.ignore();
+    int height;
+    cin >> height;
+    cin.ignore();
+
+    cerr << width << " " <<height << endl;
+    auto *rows = new string[height];
+    for (int i = 0; i < height; i++) {
+        string line;
+        getline(cin, line);
+        rows[i] = line;
+        cerr << line <<endl;
+    }
+
+
+    auto graph = Graph(width, height, rows);
+
+    graph.solve();
+
+    for (auto edge: graph.getEdges()){
+        if (edge->getValue() >0){
+            cout << (*edge) <<endl;
+        }
+
+    }
+
+}

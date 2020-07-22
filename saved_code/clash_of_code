@@ -1,0 +1,874 @@
+#include <iostream>
+#include <memory>
+#include <string>
+#include <vector>
+#include <algorithm>
+#include <map>
+
+using namespace std;
+
+const int MAX_DIST = 3000;
+const int QUEEN_START_HEALTH = 100;
+const int INIT_GOLD = 100;
+
+const int KNIGHT_COST = 80;
+const int ARCHER_COST = 100;
+const int GIANT_COST = 140;
+
+const int KNIGHT_ID = 0;
+const int ARCHER_ID = 1;
+const int GIANT_ID = 2;
+
+const int MINE_ID = 0;
+const int TOWER_ID = 1;
+const int BARRACK_ID = 2;
+
+const int MY_ID = 0;
+const int ENEMY_ID = 1;
+
+
+class GameObject {
+    int x, y;
+public:
+    GameObject(int x, int y) : x(x), y(y) {}
+
+    int getX() const {
+        return x;
+    }
+
+    int getY() const {
+        return y;
+    }
+
+    int distance(const GameObject *other) const {
+        return abs(this->getX() - other->getX()) + abs(this->getY() - other->getY());
+    }
+
+
+};
+
+class Site;
+
+class Structure {
+    Site *site;
+public:
+    explicit Structure(Site *site) : site(site) {}
+
+    virtual ~Structure() = default;
+
+    virtual int getStructureType() const = 0;
+
+    [[nodiscard]] const Site *getSite() const {
+        return site;
+    }
+
+};
+
+class Barrack : public Structure {
+    int creepType;
+    int cooldown;
+
+public:
+    Barrack(Site *site, int param1, int param2) : Structure(site), cooldown(param1), creepType(param2) {}
+
+
+    int getCreepType() const {
+        return creepType;
+    }
+
+    int getCooldown() const {
+        return cooldown;
+    }
+
+    int getStructureType() const override {
+        return BARRACK_ID;
+    }
+};
+
+class Mine : public Structure {
+    int incomeRate;
+    int maxMineSize;
+    int gold;
+
+public:
+    Mine(Site *site, int param1, int maxMineSize, int gold) : Structure(site), incomeRate(param1), gold(gold),
+                                                              maxMineSize(maxMineSize) {}
+
+    int getIncomeRate() const {
+        return incomeRate;
+    }
+
+    int getStructureType() const override {
+        return MINE_ID;
+    }
+
+    bool isMaxed() const {
+        return incomeRate >= maxMineSize;
+    }
+
+};
+
+class Tower : public Structure {
+    int hp, attackRadius;
+
+public:
+    static const int MAX_HP = 800;
+
+    Tower(Site *site, int param1, int param2) : Structure(site), hp(param1), attackRadius(param2) {}
+
+    int getHp() const {
+        return hp;
+    }
+
+    int getAttackRadius() const {
+        return attackRadius;
+    }
+
+    int getStructureType() const override {
+        return TOWER_ID;
+    }
+
+    bool isMaxed() const {
+        return hp >= MAX_HP;
+    }
+};
+
+class Site : public GameObject {
+    int siteId, radius;
+    int gold = -1, maxMineSize = -1;
+    Structure *structure = nullptr;
+
+public:
+    Site(int siteId, int x, int y, int radius) : GameObject(x, y), siteId(siteId), radius(radius) {}
+
+    void resetStructure() {
+        structure = nullptr;
+    }
+
+    void update(int gold, int maxMineSize, int structureType, int param1, int param2) {
+
+        delete structure;
+        this->gold = gold;
+        this->maxMineSize = maxMineSize;
+        switch (structureType) {
+            case -1:
+                structure = nullptr;
+                break;
+            case 0:
+                structure = new Mine(this, param1, maxMineSize, gold);
+                break;
+            case 1:
+                structure = new Tower(this, param1, param2);
+                break;
+            case 2:
+                structure = new Barrack(this, param1, param2);
+                break;
+            default:
+                throw invalid_argument("Invalid structure type");
+        }
+
+    }
+
+    int getSiteId() const {
+        return siteId;
+    }
+
+    int getGold() const {
+        return gold;
+    }
+
+    int getMaxMineSize() const {
+        return maxMineSize;
+    }
+
+    int getRadius() const {
+        return radius;
+    }
+
+    bool isFree() const {
+        return structure == nullptr;
+    }
+
+    [[nodiscard]] Structure *getStructure() const {
+        return structure;
+    }
+
+};
+
+class Unit : public GameObject {
+    int health;
+public:
+    Unit(int x, int y, int health) : GameObject(x, y), health(health) {}
+
+    virtual ~Unit() = default;
+};
+
+class Queen : public Unit {
+public:
+    Queen(int x, int y, int health) : Unit(x, y, health) {}
+};
+
+class Creep : public Unit {
+    int creepType;
+public:
+    Creep(int x, int y, int health, int creepType) : Unit(x, y, health), creepType(creepType) {}
+
+    int getCreepType() const {
+        return creepType;
+    }
+};
+
+class Player {
+    vector<Mine *> mines;
+    vector<Tower *> towers;
+    vector<Barrack *> knightBarracks;
+    vector<Barrack *> archerBarracks;
+    vector<Barrack *> giantBarracks;
+
+    Queen *queen = nullptr;
+    vector<Creep *> knights;
+    vector<Creep *> archers;
+    vector<Creep *> giants;
+
+public:
+
+    void addStructure(Structure *structure) {
+        switch (structure->getStructureType()) {
+            case MINE_ID:
+                mines.emplace_back(dynamic_cast<Mine *>(structure));
+                break;
+            case TOWER_ID:
+                towers.emplace_back(dynamic_cast<Tower *>(structure));
+                break;
+            case BARRACK_ID: {
+                auto *barrack = dynamic_cast<Barrack *>(structure);
+                switch (barrack->getCreepType()) {
+                    case KNIGHT_ID: {
+                        knightBarracks.emplace_back(barrack);
+                        break;
+                    }
+                    case ARCHER_ID: {
+                        archerBarracks.emplace_back(barrack);
+                        break;
+                    }
+                    case GIANT_ID: {
+                        giantBarracks.emplace_back(barrack);
+                        break;
+                    }
+                    default: {
+                        throw invalid_argument("Invalid creep type");
+                    }
+                }
+                break;
+            }
+            default:
+                throw invalid_argument("Invalid structure type");
+
+        }
+
+    }
+
+    void addCreep(Creep *creep) {
+        switch (creep->getCreepType()) {
+            case KNIGHT_ID:
+                knights.emplace_back(creep);
+                break;
+            case ARCHER_ID:
+                archers.emplace_back(creep);
+                break;
+            case GIANT_ID:
+                giants.emplace_back(creep);
+                break;
+            default:
+                throw invalid_argument("Invalid creep type");
+        }
+    }
+
+    void updateQueen(Queen *newQueen) {
+        queen = newQueen;
+    }
+
+    [[nodiscard]] const vector<Mine *> &getMines() const {
+        return mines;
+    }
+
+    [[nodiscard]] const vector<Tower *> &getTowers() const {
+        return towers;
+    }
+
+    [[nodiscard]] const vector<Barrack *> &getKnightBarracks() const {
+        return knightBarracks;
+    }
+
+    [[nodiscard]] const vector<Barrack *> &getArcherBarracks() const {
+        return archerBarracks;
+    }
+
+    [[nodiscard]] const vector<Barrack *> &getGiantBarracks() const {
+        return giantBarracks;
+    }
+
+    [[nodiscard]] const Queen *getQueen() const {
+        return queen;
+    }
+
+    [[nodiscard]] const vector<Creep *> &getKnights() const {
+        return knights;
+    }
+
+    [[nodiscard]] const vector<Creep *> &getArchers() const {
+        return archers;
+    }
+
+    [[nodiscard]] const vector<Creep *> &getGiants() const {
+        return giants;
+    }
+
+    int distance(const GameObject *object) const {
+        return queen->distance(object);
+    }
+
+    int distance(const Structure *structure) const {
+        return queen->distance(structure->getSite());
+    }
+};
+
+class GameState {
+    map<int, Site *> sites;
+
+    int gold = 0;
+    Player *player;
+    Player *enemy;
+
+    int rangeFromKnight(const int siteId) const {
+        int minDist = MAX_DIST;
+        Site *site = sites.at(siteId);
+        for (auto knight: enemy->getKnights()) {
+            int dist = knight->distance(site);
+            if (dist < minDist) {
+                minDist = dist;
+            }
+        }
+
+        return minDist;
+    }
+
+
+public:
+
+    void addSite(int siteId, int x, int y, int radius) {
+        sites[siteId] = new Site(siteId, x, y, radius);
+    }
+
+    void updateSite(int siteId, int structureType, int owner, int siteGold, int maxMineSize, int param1, int param2) {
+
+        sites[siteId]->update(siteGold, maxMineSize, structureType, param1, param2);
+
+        Structure *structure = sites[siteId]->getStructure();
+
+        if (structure) {
+            if (owner == MY_ID) {
+                player->addStructure(structure);
+            } else {
+                enemy->addStructure(structure);
+            }
+        }
+
+
+    }
+
+    void newTurn(int newGold) {
+        gold = newGold;
+        player = new Player;
+        enemy = new Player;
+        for (auto sitePair: sites) {
+            sitePair.second->resetStructure();
+        }
+    }
+
+    void addCreep(int x, int y, int owner, int creepType, int health) {
+
+        if (creepType == -1) {
+            if (owner == MY_ID) {
+                player->updateQueen(new Queen(x, y, health));
+            } else {
+                enemy->updateQueen(new Queen(x, y, health));
+            }
+        } else {
+            if (owner == MY_ID) {
+                player->addCreep(new Creep(x, y, health, creepType));
+            } else {
+                enemy->addCreep(new Creep(x, y, health, creepType));
+            }
+        }
+
+    }
+
+    [[nodiscard]] const Player *getPlayer() const {
+        return player;
+    }
+
+    bool hasPartialMine() const {
+        for (auto mine :player->getMines()) {
+            if (!mine->isMaxed()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    int closestFree(int goldThreshold = -1, bool acceptUnknown = false) const {
+        int minDist = MAX_DIST;
+        int minSiteId = -1;
+        for (auto sitePair: sites) {
+            int siteId = sitePair.first;
+            Site *site = sitePair.second;
+            int dist = player->distance(site);
+            if (site->isFree() && dist < minDist &&
+                (site->getGold() >= goldThreshold || (site->getGold() == -1 && acceptUnknown))) {
+                minDist = dist;
+                minSiteId = siteId;
+            }
+        }
+        return minSiteId;
+    }
+
+
+    int closestPartialMine() const {
+        int minDist = MAX_DIST;
+        int siteId = -1;
+
+        for (auto mine :player->getMines()) {
+            if (!mine->isMaxed()) {
+                int dist = player->distance(mine);
+                if (dist < minDist) {
+                    minDist = dist;
+                    siteId = mine->getSite()->getSiteId();
+                }
+            }
+        }
+
+        return siteId;
+    }
+
+    int closestPotentialMine() const {
+        int siteId = closestFree(1);
+        if (siteId == -1) {
+            siteId = closestFree(1, true);
+        }
+        return siteId;
+    }
+
+    int closestTower(int healthThreshold = 0) const {
+        int minDist = MAX_DIST;
+        int siteId = -1;
+        for (auto tower : player->getTowers()) {
+            int dist = player->distance(tower);
+
+            if (tower->getHp() < healthThreshold && dist < minDist) {
+                minDist = dist;
+                siteId = tower->getSite()->getSiteId();
+
+            }
+        }
+
+        return siteId;
+    }
+
+    int closestTowerOnly(int healthThreshold) const {
+        int siteId = closestTower();
+        if (siteId >= 0) {
+            auto tower = dynamic_cast<Tower *>(sites.at(siteId)->getStructure());
+
+            if (tower->getHp() > healthThreshold) {
+                return siteId;
+            }
+        }
+        return -1;
+
+    }
+
+    int enemyClosestKnightBarrack() const {
+        int minDist = MAX_DIST;
+        int siteId = -1;
+
+        for (auto barrack: player->getKnightBarracks()) {
+            int dist = enemy->distance(barrack);
+            if (dist < minDist) {
+                minDist = dist;
+                siteId = barrack->getSite()->getSiteId();
+            }
+        }
+        return siteId;
+    }
+
+    int enemyClosestArcherBarrack() const {
+        int minDist = MAX_DIST;
+        int siteId = -1;
+
+        for (auto barrack: player->getArcherBarracks()) {
+            int dist = enemy->distance(barrack);
+            if (dist < minDist) {
+                minDist = dist;
+                siteId = barrack->getSite()->getSiteId();
+            }
+        }
+        return siteId;
+    }
+
+    int enemyClosestGiantBarrack() const {
+        int minDist = MAX_DIST;
+        int siteId = -1;
+
+        for (auto barrack: player->getGiantBarracks()) {
+            int dist = enemy->distance(barrack);
+            if (dist < minDist) {
+                minDist = dist;
+                siteId = barrack->getSite()->getSiteId();
+            }
+        }
+        return siteId;
+    }
+
+
+    int getGold() const {
+        return gold;
+    }
+
+    bool queenUnderAttack(int attackRange) {
+        for (auto knight: enemy->getKnights()) {
+            if (knight->distance(player->getQueen()) < attackRange) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    Player *getEnemy() const {
+        return enemy;
+    }
+};
+
+class AI;
+
+class Behavior {
+    GameState &gameState;
+public:
+    virtual string next() = 0;
+
+    Behavior(GameState &gameState) : gameState(gameState) {}
+
+    GameState &getState() {
+        return gameState;
+    }
+};
+
+class TrainBehavior : public Behavior {
+public:
+    TrainBehavior(GameState &gameState) : Behavior(gameState) {}
+
+    static string train(vector<int> &sites) {
+        string base = "TRAIN";
+        for (auto site:sites) {
+            base += " " + to_string(site);
+        }
+        return base;
+    }
+
+    static string train(int site) {
+        return "TRAIN " + to_string(site);
+    }
+
+    static string train() {
+        return "TRAIN";
+    }
+
+};
+
+class NoTrainingBehavior : public TrainBehavior {
+public:
+    NoTrainingBehavior(GameState &gameState) : TrainBehavior(gameState) {}
+
+    string next() override {
+        return train();
+    }
+};
+
+class RegularTrainingBehavior : public TrainBehavior {
+public:
+    explicit RegularTrainingBehavior(GameState &gameState) : TrainBehavior(gameState) {}
+
+    string next() override {
+        // If enemy has a giant generate archer
+        if (!getState().getEnemy()->getGiants().empty()) {
+            if (getState().getGold() > ARCHER_COST) {
+                int siteId = getState().enemyClosestArcherBarrack();
+                if (siteId >= 0) {
+                    return train(siteId);
+                }
+            }
+        }
+            //If enemy has 3 tower or more generate a giant
+        else if (getState().getEnemy()->getTowers().size() >= 3) {
+            if (getState().getGold() > GIANT_COST) {
+                int siteId = getState().enemyClosestGiantBarrack();
+                if (siteId >= 0) {
+                    return train(siteId);
+                }
+            }
+        }
+            //Else generate knight
+        else {
+            if (getState().getGold() > KNIGHT_COST) {
+                int siteId = getState().enemyClosestKnightBarrack();
+                if (siteId >= 0) {
+                    return train(siteId);
+                }
+            }
+        }
+
+        return train();
+
+    }
+};
+
+class BuildBehavior : public Behavior {
+public:
+
+    BuildBehavior(GameState &gameState) : Behavior(gameState) {}
+
+    static string buildTower(const int siteId) {
+        return "BUILD " + to_string(siteId) + " TOWER";
+    }
+
+    static string buildMine(const int siteId) {
+        return "BUILD " + to_string(siteId) + " MINE";
+    }
+
+    static string buildKnightBarrack(int siteId) {
+        return "BUILD " + to_string(siteId) + " BARRACKS-KNIGHT";
+    }
+
+    static string buildArcherBarrack(int siteId) {
+        return "BUILD " + to_string(siteId) + " BARRACKS-ARCHER";
+    }
+
+    static string buildGiantBarrack(int siteId) {
+        return "BUILD " + to_string(siteId) + " BARRACKS-GIANT";
+    }
+
+    static string wait() {
+        return "WAIT";
+    }
+
+};
+
+class RegularBehavior : public BuildBehavior {
+    const int TARGET_MINE = 4;
+
+public:
+    RegularBehavior(GameState &gameState) : BuildBehavior(gameState) {
+        cerr << "Build behavior: Mine focus" << endl;
+    }
+
+    string next() override {
+
+        // If giant, build archer barrack
+        if (!getState().getEnemy()->getGiants().empty() && getState().getPlayer()->getArcherBarracks().empty()) {
+            int siteId = getState().closestFree();
+            if (siteId >= 0) {
+                return buildArcherBarrack(siteId);
+            }
+        }
+            // if tower >= 3 build giant barrack
+        else if (getState().getEnemy()->getTowers().size() >= 3 && getState().getPlayer()->getGiantBarracks().empty()) {
+            int siteId = getState().closestFree();
+            if (siteId >= 0) {
+                return buildGiantBarrack(siteId);
+            }
+        }
+            //Else generate knight
+        else if (getState().getPlayer()->getMines().size() >= TARGET_MINE &&
+                 getState().getPlayer()->getKnightBarracks().empty()) {
+            int siteId = getState().closestFree();
+            if (siteId >= 0) {
+                return buildKnightBarrack(siteId);
+            }
+        }
+            //Build at least 3 tower with 500 HP
+        else if (getState().getPlayer()->getMines().size() >= TARGET_MINE &&
+                 getState().getPlayer()->getTowers().size() < 4) {
+            cerr << "Trying to build tower" << endl;
+            //If closest tower as less than 500 hp, upgrade
+            int siteId = getState().closestTowerOnly(600);
+            if (siteId >= 0) {
+                return buildTower(siteId);
+            }
+            //Find tower with less than 200 hp
+            siteId = getState().closestTower(200);
+            if (siteId >= 0) {
+                return buildTower(siteId);
+            }
+
+            siteId = getState().closestFree();
+            if (siteId >= 0){
+                return buildTower(siteId);
+            }
+        }
+            //Add Mine
+        else {
+
+            cerr << "Trying to find mine" << endl;
+            int siteId = getState().closestPartialMine();
+            if (siteId >= 0) {
+                return buildMine(siteId);
+            }
+
+            siteId = getState().closestPotentialMine();
+            if (siteId >= 0) {
+                return buildMine(siteId);
+            }
+
+        }
+
+
+
+        cerr << "Waiting" << endl;
+        return wait();
+
+
+    }
+};
+
+class UnderAttackBehavior : public BuildBehavior {
+    ///Run away from knight to tower, if knight near tower, run to another tower, if not, run to a free spot and build tower
+
+    const int TARGET_TOWER = 3;
+
+public:
+    explicit UnderAttackBehavior(GameState &gameState) : BuildBehavior(gameState) {
+        cerr << "Build behavior: Hide" << endl;
+    }
+
+    string next() override {
+
+        ///Build at least 3 towers
+        if (getState().getPlayer()->getTowers().size() < TARGET_TOWER) {
+            int siteId = getState().closestFree();
+            if (siteId >= 0) {
+                return buildTower(siteId);
+            }
+        }
+            ///Upkeep tower
+        else {
+            int siteId = getState().closestTower(Tower::MAX_HP - 100);
+            if (siteId >= 0) {
+                return buildTower(siteId);
+            }
+
+        }
+
+        return wait();
+
+
+    }
+};
+
+
+class AI {
+    GameState &gameState;
+    BuildBehavior *buildBehavior;
+    TrainBehavior *trainBehavior;
+
+    const int ATTACK_RANGE = 900;
+
+
+public:
+
+    explicit AI(GameState &gameState) : gameState(gameState), buildBehavior(new RegularBehavior(gameState)),
+                                        trainBehavior(new NoTrainingBehavior(gameState)) {}
+
+    void setBehaviors() {
+
+        trainBehavior = new RegularTrainingBehavior(gameState);
+
+        if (gameState.queenUnderAttack(ATTACK_RANGE)) {
+            buildBehavior = new UnderAttackBehavior(gameState);
+        } else {
+            buildBehavior = new RegularBehavior(gameState);
+        }
+
+
+    }
+
+    string nextCommand() {
+        return buildBehavior->next();
+    }
+
+    string nextTrain() {
+        return trainBehavior->next();
+    }
+
+};
+
+
+int main() {
+
+    auto gameState = GameState();
+
+
+    int numSites;
+    cin >> numSites;
+    cin.ignore();
+    for (int i = 0; i < numSites; i++) {
+        int siteId;
+        int x;
+        int y;
+        int radius;
+        cin >> siteId >> x >> y >> radius;
+        cin.ignore();
+        gameState.addSite(siteId, x, y, radius);
+    }
+
+    auto ai = AI(gameState);
+    // game loop
+    while (1) {
+
+        int gold;
+        int touchedSite; // -1 if none
+        cin >> gold >> touchedSite;
+        cin.ignore();
+        gameState.newTurn(gold);
+
+        for (int i = 0; i < numSites; i++) {
+            int siteId;
+            int gold; // used in future leagues
+            int maxMineSize; // used in future leagues
+            int structureType; // -1 = No structure, 2 = Barracks
+            int owner; // -1 = No structure, 0 = Friendly, 1 = Enemy
+            int param1;
+            int param2;
+            cin >> siteId >> gold >> maxMineSize >> structureType >> owner >> param1 >> param2;
+            cin.ignore();
+            gameState.updateSite(siteId, structureType, owner, gold, maxMineSize, param1, param2);
+        }
+        int numUnits;
+        cin >> numUnits;
+        cin.ignore();
+        for (int i = 0; i < numUnits; i++) {
+            int x;
+            int y;
+            int owner;
+            int unitType; // -1 = QUEEN, 0 = KNIGHT, 1 = ARCHER
+            int health;
+            cin >> x >> y >> owner >> unitType >> health;
+            cin.ignore();
+            gameState.addCreep(x, y, owner, unitType, health);
+        }
+
+
+        ai.setBehaviors();
+        cout << ai.nextCommand() << endl;
+        cout << ai.nextTrain() << endl;
+    }
+}
