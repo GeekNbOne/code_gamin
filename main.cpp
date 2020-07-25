@@ -144,8 +144,10 @@ public:
     virtual void bounceWithCheckpoint(int checkpointId) =0;
     virtual void bounceWithPod(Unit* u)=0;
 
+
+
     friend ostream &operator<<(ostream &os, const Unit &unit) {
-        os << unit.getId() << " (" << unit.x << ","<< unit.y <<")";
+        os << unit.getId() << " (" << unit.x << ","<< unit.y <<")" << " Speed: (" << unit.vx <<"," << unit.vy << ")" ;
         return os;
     }
 
@@ -159,6 +161,7 @@ class Pod:public Unit{
     int nextCheckpointId;
     int checked,timeout;
     bool shield;
+
 
     double truncate(double val){
         if(val>=0) return floor(val);
@@ -307,18 +310,14 @@ public:
         u->bouncePod(this);
     }
 
-    Pod(double x, double y, double vx, double vy,double nextCheckpointAngle,Point nextCheckpoint):Unit(x,y,POD_RADIUS,vx,vy) ,angle(angle){
-        //Check angle from pos to checkpoint
-
-        //Add angle to nextcheckpoint angle
+    Pod(double x, double y,double vx, double vy):Unit(x,y,POD_RADIUS,vx,vy) ,angle(0){
 
 
     }
 
-    friend ostream &operator<<(ostream &os, const Pod &pod) {
-        os << static_cast<const Unit &>(pod) << " angle: " << pod.angle;
-        return os;
-    }
+
+
+
 
 
 };
@@ -342,56 +341,51 @@ public:
 };
 
 
-
 int main()
 {
+    bool boostAvailable = false;
+    float vx =0, vy =0;
     bool first = true;
-
-    Pod* pod = new Pod(0.0,0.0,0,0);
-    Pod* pod2 = new Pod( 800,0,0,0);
-    Unit* ck = new Checkpoint(0,0);
-
-    pod->rotate(Point(800,0));
-    pod2->rotate(Point(0,0));
-
-    pod->boost(200);
-    pod2->boost(200);
-
-    cout << "pod1: " <<(*pod) << " Pod2: "<<(*pod2)<<endl;
-    pod->bounce(pod2);
-    pod->move(1);
-    pod2->move(1);
-    cout << "pod1: " <<(*pod) << " Pod2: "<<(*pod2)<<endl;
-
-
-
     // game loop
-//    while (1) {
-//        int x;
-//        int y;
-//        int nextCheckpointX; // x position of the next check point
-//        int nextCheckpointY; // y position of the next check point
-//        int nextCheckpointDist; // distance to the next checkpoint
-//        int nextCheckpointAngle; // angle between your pod orientation and the direction of the next checkpoint
-//        cin >> x >> y >> nextCheckpointX >> nextCheckpointY >> nextCheckpointDist >> nextCheckpointAngle; cin.ignore();
-//        int opponentX;
-//        int opponentY;
-//        cin >> opponentX >> opponentY; cin.ignore();
-//
-//
-//        int thrust;
-//
-//        if (nextCheckpointAngle > 90||nextCheckpointAngle < -90){
-//            thrust =0;
-//        } else{
-//            thrust=100;
-//        }
-//        if (first){
-//            first = false;
-//            cout << nextCheckpointX << " " << nextCheckpointY << " " << "BOOST" <<endl;
-//        }else{
-//            cout << nextCheckpointX << " " << nextCheckpointY << " " << thrust <<endl;
-//        }
-//
-//    }
+    while (1) {
+        int x;
+        int y;
+        int nextCheckpointX; // x position of the next check point
+        int nextCheckpointY; // y position of the next check point
+        int nextCheckpointDist; // distance to the next checkpoint
+        int nextCheckpointAngle; // angle between your pod orientation and the direction of the next checkpoint
+        cin >> x >> y >> nextCheckpointX >> nextCheckpointY >> nextCheckpointDist >> nextCheckpointAngle; cin.ignore();
+        int opponentX;
+        int opponentY;
+        cin >> opponentX >> opponentY; cin.ignore();
+
+        auto myPod = Pod(x,y,vx,vy);
+        auto enemyPod = Pod(opponentX,opponentY,0,0);
+        auto checkPoint = Checkpoint(nextCheckpointX,nextCheckpointY);
+
+
+        auto dist = myPod.distance(enemyPod);
+
+        int nextX = nextCheckpointX, nextY = nextCheckpointY;
+
+        int thrust = abs(nextCheckpointAngle) >= 90 ?0:100;
+
+        if (boostAvailable && abs(nextCheckpointAngle) <5 && nextCheckpointDist > 1000){
+            boostAvailable = false;
+            cout << nextX << " " << nextY << " " << "BOOST" <<endl;
+        }else{
+
+            cout << nextX << " " << nextY << " " << thrust <<endl;
+
+            float dist = Point(nextX, nextY).distance(Point(x,y));
+            vx += ((float)(nextX - x) / dist * (float)thrust);
+            vy += ((float)(nextY - y) / dist * (float)thrust);
+            vx = vx * 0.85;
+            vy = vy * 0.85;
+            vx = vx >0 ? floor(vx): ceil(vx);
+            vy = vy >0 ? floor(vy): ceil(vy);
+            cerr << vx <<"," << vy <<endl;
+        }
+
+    }
 }
