@@ -3,389 +3,360 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
-#include <limits>
 
 using namespace std;
 
-const int CHECKPOINT_RADIUS = 600;
-const int POD_RADIUS = 400;
-class Unit;
+struct Point{
+    int x,y;
 
-struct Collision{
- const Unit* a;
- const Unit* b;
- double t{};
- Collision(const Unit* a, const Unit* b, double t):a(a),b(b),t(t){}
-};
+    Point(int x, int y): x(x),y(y){}
 
-class Point{
-
-public:
-    double x,y;
-    Point(double x, double y) : x(x), y(y) {}
-
-    double distance2(const Point& other) const{
-        return (x-other.x)*(x-other.x)+(y-other.y)*(y-other.y);
+    float distance(Point& unit) const{
+        return sqrt((x - unit.x) * ( x - unit.x) + (y - unit.y) * ( y - unit.y) );
     }
 
-    double distance(const Point& other) const{
-        return sqrt(distance2(other));
+    Point& operator+=(const Point& other){
+        x += other.x;
+        y += other.y;
+        return *this;
     }
 
-    Point closest(Point a, Point b) const {
-        double da = b.y - a.y;
-        double db = a.x - b.x;
-        double c1 = da*a.x + db*a.y;
-        double c2 = -db*this->x + da*this->y;
-        double det = da*da + db*db;
-        double cx = 0;
-        double cy = 0;
+    friend Point operator-(Point lhs, const Point& rhs){
+        return {lhs.x - rhs.x, lhs.y - rhs.y};
+    }
+    friend Point operator+(Point lhs, const Point& rhs){
+        return {lhs.x + rhs.x, lhs.y + rhs.y};
+    }
 
-        if (det != 0) {
-            cx = (da*c1 - db*c2) / det;
-            cy = (da*c2 + db*c1) / det;
-        } else {
-            // The point is already on the line
-            cx = this->x;
-            cy = this->y;
+    string toString() const {
+        return to_string(x) + " " + to_string(y);
+    }
+
+    float magnitude() const{
+        return sqrt(x*x + y*y);
+    }
+
+    Point clamp(float distance){
+        float m = magnitude();
+        if(m > distance){
+            return {(int)(((float) x ) * distance /m), (int)(((float) y ) * distance /m)};
         }
 
-        return {cx, cy};
+        return *this;
     }
+
 
 };
 
-class Unit:public Point{
-    const int id;
-    static int _id;
+class Unit{
 
+    Point position;
 
 public:
-    double vx,vy, r;
+    Unit(int x, int y): position(Point(x, y)){}
 
-    Unit(double x, double y, double r, double vx, double vy) : Point(x, y), id(_id++), r(r),vx(vx),vy(vy) {}
+    explicit Unit(Point point): position(point){}
 
-    Collision collision(Unit* u) const{
-            // Square of the distance
-            double dist = this->distance2(*u);
+    Unit( const  Unit& u):Unit(u.position){}
 
-            // Sum of the radii squared
-            double sr = (this->r + u->r)*(this->r + u->r);
+    int x()const{return position.x;}
+    int y() const {return position.y;}
 
-            // We take everything squared to avoid calling sqrt uselessly. It is better for performances
-
-            if (dist < sr) {
-                // Objects are already touching each other. We have an immediate collision.
-                return {this, u, 0.0};
-            }
-
-            // Optimisation. Objects with the same speed will never collide
-            if (this->vx == u->vx && this->vy == u->vy) {
-                return Collision(this,u, numeric_limits<double>::infinity());
-            }
-
-            // We place ourselves in the reference frame of u. u is therefore stationary and is at (0,0)
-            double x = this->x - u->x;
-            double y = this->y - u->y;
-            Point myp = Point(x, y);
-            double vx = this->vx - u->vx;
-            double vy = this->vy - u->vy;
-            Point up =  Point(0, 0);
-
-            // We look for the closest point to u (which is in (0,0)) on the line described by our speed vector
-            Point p = up.closest(myp,  Point(x + vx, y + vy));
-
-            // Square of the distance between u and the closest point to u on the line described by our speed vector
-            double pdist = up.distance2(p);
-
-            // Square of the distance between us and that point
-            double mypdist = myp.distance2(p);
-
-            // If the distance between u and this line is less than the sum of the radii, there might be a collision
-            if (pdist < sr) {
-                // Our speed on the line
-                double length = sqrt(vx*vx + vy*vy);
-
-                // We move along the line to find the point of impact
-                double backdist = sqrt(sr - pdist);
-                p.x = p.x - backdist * (vx / length);
-                p.y = p.y - backdist * (vy / length);
-
-                // If the point is now further away it means we are not going the right way, therefore the collision won't happen
-                if (myp.distance2(p) > mypdist) {
-                    return Collision(this,u,numeric_limits<double>::infinity());
-                }
-
-                pdist = p.distance(myp);
-
-                // The point of impact is further than what we can travel in one turn
-                if (pdist > length) {
-                    return Collision(this,u,numeric_limits<double>::infinity());
-                }
-
-                // Time needed to reach the impact point
-                double t = pdist / length;
-
-                return Collision(this, u, t);
-            }
-
-            return {this,u,numeric_limits<double>::infinity()};
-        }
-
-    bool is(int otherId)const{
-        return otherId == this->id;
+    float distance(Unit& unit) const{
+        return position.distance(unit.position);
     }
 
-    int getId() const {
+    float distance(Unit* unit)const{
+        return position.distance(unit->position);
+    }
+
+    void setPosition(Point dest){
+        position = dest;
+    }
+
+    Point getPosition()const{
+        return position;
+    }
+
+    void move(Point dest,float moveDistance){
+        position += (dest - position).clamp(moveDistance);
+    }
+
+    string posString()const{
+        return position.toString();
+    }
+};
+
+class Ash : public Unit{
+
+    const int moveDistance = 1000;
+public:
+    Ash(int x, int y) : Unit(x, y) {}
+
+    Ash(Point point):Unit(point){}
+
+    Ash(const Ash& ash): Ash(ash.getPosition()){}
+
+    void simMove(Point dest){
+        move(dest,moveDistance);
+    }
+
+    friend ostream &operator<<(ostream &os, const Ash &ash) {
+        os << "Ash: " << ash.posString();
+        return os;
+    }
+
+};
+
+class UnitID: public Unit{
+    int id;
+
+public:
+    UnitID(int id,int x, int y):id(id),Unit(x,y){}
+
+    UnitID(int id, Point position):id(id),Unit(position){}
+
+    UnitID(const UnitID& unitId): UnitID(unitId.id,unitId.getPosition()){}
+
+    int getId()const{
         return id;
     }
+    string toString() const{
+        return "(" + to_string(id) + "): " + posString();
+    }
 
-    virtual void bouncePod(Unit* u ) =0;
-    virtual void bounceWithCheckpoint(int checkpointId) =0;
-    virtual void bounceWithPod(Unit* u)=0;
+    friend ostream &operator<<(ostream &os, const UnitID &id) {
+        os << "(" << to_string(id.id) << "): " << id.posString();
+        return os;
+    }
+};
+
+class Human: public UnitID{
+
+public:
+    Human(int id,int x, int y) : UnitID(id,x, y) {}
+
+    Human(int id,Point position ) : UnitID(id,position){}
+
+    Human(const Human& h) :Human(h.getId(),h.getPosition()){}
+
+    friend ostream &operator<<(ostream &os, const Human &human) {
+        os << "Human " << human.toString() ;
+        return os;
+    }
+
+};
+
+class Zombie : public UnitID{
+    Point next;
+public:
+    Zombie(int id, int x, int y,int nextX, int nextY) : UnitID(id,x, y),next(nextX,nextY) {}
+
+    Zombie(int id, Point position, Point next):UnitID(id,position),next(next){}
+
+    Zombie(const Zombie& zombie): Zombie(zombie.getId(), zombie.getPosition(), zombie.next){}
+
+    void setNext(Point nextPosition){
+        next = nextPosition;
+    }
+
+    void simMove(){
+        move(next,400);
+    }
+
+    friend ostream &operator<<(ostream &os, const Zombie &zombie) {
+        os << "Zombie " << zombie.toString();
+        return os;
+    }
+};
+
+class Round{
+
+    Ash* ash;
+    vector<Human*> humans = vector<Human*>();
+    vector<Zombie*> zombies =  vector<Zombie*>();
+
+    void zombiesMove(){
+        for(auto z: zombies){
+            z->simMove();
+        }
+    }
+    void zombiesFindNext(){
+
+        for(auto z: zombies){
+            z->setNext(findZombieNext(z));
+        }
+    }
+
+    Point findZombieNext(Zombie* z){
+        float minDistance = z->distance(ash);
+        Unit* target = ash;
+
+        for(auto h :humans){
+            float hz = z->distance(h);
+            if(hz < minDistance){
+                minDistance = hz;
+                target = h;
+            }
+        }
+
+        cout << target->posString() << endl;
+
+        return target->getPosition();
+    }
+
+public:
+
+    Round() = default;
+
+    Round(const Round& r) {
+        ash = new Ash(*(r.ash));
+        for(auto h: r.humans){
+            humans.emplace_back(new Human(*h));
+        }
+
+        for(auto z: r.zombies){
+            zombies.emplace_back(new Zombie(*z));
+        }
+    }
+
+    int simRound(Point ashDest){
+        //Find Zombie next
+        zombiesFindNext();
+        //Zombies move
+        zombiesMove();
+        //Ash moves
+        ash->simMove(ashDest);
+        //Ash destroy zombies
+            //Remove zombies from vector and accum points
+        //Zombies eats
+            //Remove human from vector if share coord
+        return 0;
+    }
+    Zombie* closestZombie(){
+        return *(min_element(zombies.begin(), zombies.end(),
+                [&](Zombie* z1, Zombie* z2){return ash->distance(z1) < ash->distance(z2);}));
+    }
+
+    Point ZombieCentroid() const{
+
+        float zx=0, zy=0;
+        for(auto z : zombies){
+            zx += z->x();
+            zy+= z->y();
+        }
+
+        return Point(zx / zombies.size(), zy / zombies.size());
+    }
+
+    void addAsh(int x, int y){
+        ash = new Ash(x,y);
+    }
+
+    void addHuman(int id, int x, int y){
+        humans.emplace_back(new Human(id,x,y));
+    }
+
+    void addZombie(int id, int x, int y, int nextX, int nextY){
 
 
+        zombies.emplace_back(new Zombie(id,x,y,nextX,nextY));
+        zombies.back()->setPosition(Point(8250,4500));
+        cerr << zombies.back()->posString() << endl;
+    }
 
-    friend ostream &operator<<(ostream &os, const Unit &unit) {
-        os << unit.getId() << " (" << unit.x << ","<< unit.y <<")" << " Speed: (" << unit.vx <<"," << unit.vy << ")" ;
+    friend ostream &operator<<(ostream &os, const Round &round) {
+
+        os << (*round.ash) <<endl;
+
+        for(auto h: round.humans)
+            os << (*h) << endl;
+
+        for(auto z: round.zombies)
+            os << (*z )<< endl;
         return os;
     }
 
 
 };
 
-int Unit::_id = 0;
-
-class Pod:public Unit{
-    double angle;
-    int nextCheckpointId;
-    int checked,timeout;
-    bool shield;
-
-
-    double truncate(double val){
-        if(val>=0) return floor(val);
-        else return ceil(val);
-    }
-    
-    static double getAngle(const Point& source, const Point& p){
-        double d = source.distance(p);
-
-        double dx = (p.x - source.x) / d;
-        double dy = (p.y - source.y) / d;
-
-        // Simple trigonometry. We multiply by 180.0 / PI to convert radiants to degrees.
-        double a = acos(dx) * 180.0 / M_PI;
-
-        // If the point I want is below me, I have to shift the angle for it to be correct
-        if (dy < 0) {
-            a = 360.0 - a;
-        }
-
-        return a;
-    }
+class AI{
 public:
-
-    double diffAngle(const Point& p) const{
-        double a = Pod::getAngle(*this,p);
-        // To know whether we should turn clockwise or not we look at the two ways and keep the smallest
-        // The ternary operators replace the use of a modulo operator which would be slower
-        double right = angle <= a ? a - angle : 360.0 - angle + a;
-        double left = angle >= a ? angle - a : angle + 360.0 - a;
-
-        if (right < left) {
-            return right;
-        } else {
-            // We return a negative angle if we must rotate to left
-            return -left;
-        }
-    }
-
-    void rotate(const Point& p) {
-        double a = diffAngle(p);
-        // Can't turn by more than 18° in one turn
-        if (a > 18.0) {
-            a = 18.0;
-        } else if (a < -18.0) {
-            a = -18.0;
-        }
-
-        angle += a;
-
-        // The % operator is slow. If we can avoid it, it's better.
-        if (angle >= 360.0) {
-            angle = angle - 360.0;
-        } else if (angle < 0.0) {
-            angle += 360.0;
-        }
-    }
-
-    void boost(int thrust) {
-        // Don't forget that a pod which has activated its shield cannot accelerate for 3 turns
-        if (shield) {
-            return;
-        }
-
-        // Conversion of the angle to radiants
-        double ra = angle * M_PI / 180.0;
-
-        // Trigonometry
-        this->vx += cos(ra) * thrust;
-        this->vy += sin(ra) * thrust;
-    }
-
-    void move(double t) {
-        this->x += this->vx * t;
-        this->y += this->vy * t;
-    }
-
-    void end() {
-        x = round(x);
-        y = round(y);
-        vx = truncate(vx * 0.85);
-        vy = truncate(vy * 0.85);
-
-        // Don't forget that the timeout goes down by 1 each turn. It is reset to 100 when you pass a checkpoint
-        timeout -= 1;
-    }
-
-    void bounceWithCheckpoint(int checkpointId) override {
-        if( nextCheckpointId == checkpointId){
-            checked++;
-            timeout = 100;
-        }
-        checked++;
-
-    }
-
-    void bounceWithPod(Unit* u) override{
-        auto p = dynamic_cast<Pod*>(u);
-        
-        double m1 = this->shield ? 10 : 1;
-        double m2 = p->shield ? 10 : 1;
-        double mcoeff = (m1 + m2) / (m1 * m2);
-
-        double nx = this->x - p->x;
-        double ny = this->y - p->y;
-
-        // Square of the distance between the 2 pods. This value could be hardcoded because it is always 800²
-        double nxnysquare = nx*nx + ny*ny;
-
-        double dvx = this->vx - p->vx;
-        double dvy = this->vy - p->vy;
-
-        // fx and fy are the components of the impact vector. product is just there for optimisation purposes
-        double product = nx*dvx + ny*dvy;
-        double fx = (nx * product) / (nxnysquare * mcoeff);
-        double fy = (ny * product) / (nxnysquare * mcoeff);
-
-        // We apply the impact vector once
-        this->vx -= fx / m1;
-        this->vy -= fy / m1;
-        p->vx += fx / m2;
-        p->vy += fy / m2;
-
-        // If the norm of the impact vector is less than 120, we normalize it to 120
-        double impulse = sqrt(fx*fx + fy*fy);
-        if (impulse < 120.0) {
-            fx = fx * 120.0 / impulse;
-            fy = fy * 120.0 / impulse;
-        }
-
-        // We apply the impact vector a second time
-        this->vx -= fx / m1;
-        this->vy -= fy / m1;
-        p->vx += fx / m2;
-        p->vy += fy / m2;
-
-        // This is one of the rare places where a Vector class would have made the code more readable.
-        // But this place is called so often that I can't pay a performance price to make it more readable.
-    }
-
-    void bouncePod(Unit *u) override {
-        u->bounceWithPod(u);
-    }
-
-    void bounce(Unit *u) {
-        u->bouncePod(this);
-    }
-
-    Pod(double x, double y,double vx, double vy):Unit(x,y,POD_RADIUS,vx,vy) ,angle(0){
-
-
-    }
-
-
-
-
-
-
-};
-
-class Checkpoint: public Unit{
-public:
-    Checkpoint(double x, double y) : Unit(x, y, CHECKPOINT_RADIUS,0,0) {}
-
-    void bouncePod(Unit* u) override{
-        u->bounceWithCheckpoint(getId());
-    }
-
-    void bounceWithCheckpoint(int checkpointId) override {
-
-    }
-
-    void bounceWithPod(Unit *u) override {
-
-    }
-
+    virtual string next(Round round) =0;
 };
 
 
+class SimpleAI :public AI{
+
+    /// Follow the zombies centroid
+
+public:
+    string next(Round round){
+        return round.ZombieCentroid().toString();
+    }
+};
 int main()
 {
-    bool boostAvailable = false;
-    float vx =0, vy =0;
-    bool first = true;
+
+    AI* ai = new SimpleAI;
     // game loop
-    while (1) {
+//    while (1)
+    {
+
+        Round round = Round();
         int x;
         int y;
-        int nextCheckpointX; // x position of the next check point
-        int nextCheckpointY; // y position of the next check point
-        int nextCheckpointDist; // distance to the next checkpoint
-        int nextCheckpointAngle; // angle between your pod orientation and the direction of the next checkpoint
-        cin >> x >> y >> nextCheckpointX >> nextCheckpointY >> nextCheckpointDist >> nextCheckpointAngle; cin.ignore();
-        int opponentX;
-        int opponentY;
-        cin >> opponentX >> opponentY; cin.ignore();
+        cin >> x >> y; cin.ignore();
 
-        auto myPod = Pod(x,y,vx,vy);
-        auto enemyPod = Pod(opponentX,opponentY,0,0);
-        auto checkPoint = Checkpoint(nextCheckpointX,nextCheckpointY);
+        cerr << x << " " << y <<endl;
+
+        round.addAsh(x, y);
+
+        int humanCount;
+        cin >> humanCount; cin.ignore();
+
+        cerr << humanCount <<endl;
+        for (int i = 0; i < humanCount; i++) {
+            int humanId;
+            int humanX;
+            int humanY;
+            cin >> humanId >> humanX >> humanY; cin.ignore();
+            round.addHuman(humanId, humanX, humanY);
+
+            cerr << humanId << " " << humanX << " " << humanY <<endl;
+
+        }
+        int zombieCount;
+        cin >> zombieCount; cin.ignore();
+        cerr <<zombieCount << endl;
+        for (int i = 0; i < zombieCount; i++) {
+            int zombieId;
+            int zombieX;
+            int zombieY;
+            int zombieXNext;
+            int zombieYNext;
+            cin >> zombieId >> zombieX >> zombieY >> zombieXNext >> zombieYNext; cin.ignore();
+
+            round.addZombie(zombieId, zombieX, zombieY, zombieXNext, zombieYNext);
 
 
-        auto dist = myPod.distance(enemyPod);
+            cerr << zombieId << " " << zombieX << " " <<zombieY << " " <<
+            zombieXNext <<" "<< zombieYNext << " "<<endl;
 
-        int nextX = nextCheckpointX, nextY = nextCheckpointY;
 
-        int thrust = abs(nextCheckpointAngle) >= 90 ?0:100;
-
-        if (boostAvailable && abs(nextCheckpointAngle) <5 && nextCheckpointDist > 1000){
-            boostAvailable = false;
-            cout << nextX << " " << nextY << " " << "BOOST" <<endl;
-        }else{
-
-            cout << nextX << " " << nextY << " " << thrust <<endl;
-
-            float dist = Point(nextX, nextY).distance(Point(x,y));
-            vx += ((float)(nextX - x) / dist * (float)thrust);
-            vy += ((float)(nextY - y) / dist * (float)thrust);
-            vx = vx * 0.85;
-            vy = vy * 0.85;
-            vx = vx >0 ? floor(vx): ceil(vx);
-            vy = vy >0 ? floor(vy): ceil(vy);
-            cerr << vx <<"," << vy <<endl;
         }
 
+//        Round r2 = round;
+//
+//        cout << "Pre sim r2"<<endl << r2 <<endl;
+//
+//        r2.simRound(Point(5000,5000));
+//
+//        cout << "Post sim r2 "<<endl << r2 <<endl;
+
+        cout << "Original r" <<endl << round << endl;
+
+
+        cout << ai->next(round) << endl; // Your destination coordinates
     }
 }
