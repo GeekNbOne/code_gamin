@@ -228,14 +228,14 @@ public:
         //Ash moves
         ash->simMove(ashDest);
         //Ash destroy zombies
-            //Remove zombies from vector and accum points
+        //Remove zombies from vector and accum points
         //Zombies eats
-            //Remove human from vector if share coord
+        //Remove human from vector if share coord
         return 0;
     }
     Zombie* closestZombie(){
         return *(min_element(zombies.begin(), zombies.end(),
-                [&](Zombie* z1, Zombie* z2){return ash->distance(z1) < ash->distance(z2);}));
+                             [&](Zombie* z1, Zombie* z2){return ash->distance(z1) < ash->distance(z2);}));
     }
 
     Point ZombieCentroid() const{
@@ -341,7 +341,7 @@ int main()
 
 
             cerr << zombieId << " " << zombieX << " " <<zombieY << " " <<
-            zombieXNext <<" "<< zombieYNext << " "<<endl;
+                 zombieXNext <<" "<< zombieYNext << " "<<endl;
 
 
         }
